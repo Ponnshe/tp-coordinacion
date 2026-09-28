@@ -1,16 +1,25 @@
 package messagehandler
 
 import (
+	"sync/atomic"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/fruititem"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/messageprotocol/inner"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/middleware"
 )
 
+var globalSessionCounter atomic.Uint64
+const stepSessionCounter = 0
+
 type MessageHandler struct {
+	sessionID uint64
 }
 
 func NewMessageHandler() MessageHandler {
-	return MessageHandler{}
+
+  sessionID := globalSessionCounter.Add(stepSessionCounter);
+	return MessageHandler{
+		sessionID: uint64(sessionID),
+	}
 }
 
 func (messageHandler *MessageHandler) SerializeDataMessage(fruitRecord fruititem.FruitItem) (*middleware.Message, error) {
@@ -29,4 +38,8 @@ func (messageHandler *MessageHandler) DeserializeResultMessage(message *middlewa
 		return nil, err
 	}
 	return fruitRecords, nil
+}
+
+func (messageHandler *MessageHandler) SessionID()  (uint64) {
+	return messageHandler.sessionID
 }
