@@ -20,7 +20,7 @@ func deserializeJson(message []byte) ([]interface{}, error) {
 	return data, nil
 }
 
-func SerializeMessage(fruitRecords []fruititem.FruitItem) (*middleware.Message, error) {
+func SerializeMessage(fruitRecords []fruititem.FruitItem, sessionID uint64) (*middleware.Message, error) {
 	data := []interface{}{}
 	for _, fruitRecord := range fruitRecords {
 		datum := []interface{}{
@@ -30,7 +30,9 @@ func SerializeMessage(fruitRecords []fruititem.FruitItem) (*middleware.Message, 
 		data = append(data, datum)
 	}
 
-	body, err := serializeJson(data)
+	finalPayload := []interface{}{sessionID, data}
+
+	body, err := serializeJson(finalPayload)
 	if err != nil {
 		return nil, err
 	}
