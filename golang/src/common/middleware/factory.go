@@ -1,9 +1,74 @@
 package middleware
 
+import (
+	"fmt"
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+
 func CreateQueueMiddleware(queueName string, connectionSettings ConnSettings) (Middleware, error) {
-	return nil, nil
+
+	url := fmt.Sprintf("amqp://guest:guest@%s:%d", connectionSettings.Hostname, connectionSettings.Port)
+	connection, err := amqp.Dial(url)
+	if err != nil {
+		return nil, ErrMessageMiddlewareDisconnected
+	}
+
+	channel, err := connection.Channel()
+	if err != nil {
+		connection.Close()
+		return nil, ErrMessageMiddlewareDisconnected
+	}
+
+	_, err = channel.QueueDeclare(
+		queueName,
+		false, // durable
+		false, // autoDelete
+		false, // exclusive
+		false, // noWait
+		nil,
+	)
+	if err != nil {
+		connection.Close()
+		return nil, ErrMessageMiddlewareDisconnected
+	}
+
+	return &queueMiddleware{
+		commonMiddleware: commonMiddleware{connection: connection, channel: channel},
+		queueName:        queueName,
+	}, nil
 }
 
 func CreateExchangeMiddleware(exchange string, keys []string, connectionSettings ConnSettings) (Middleware, error) {
-	return nil, nil
+	url := fmt.Sprintf("amqp://guest:guest@%s:%d/", connectionSettings.Hostname, connectionSettings.Port)
+	connection, err := amqp.Dial(url)
+	if err != nil {
+		return nil, ErrMessageMiddlewareDisconnected
+	}
+
+	channel, err := connection.Channel()
+	if err != nil {
+		connection.Close()
+		return nil, ErrMessageMiddlewareDisconnected
+	}
+
+	err = channel.ExchangeDeclare(
+		exchange,
+		"direct", // kind: standard basic exchange
+		false,    // durable
+		false,    // autoDelete
+		false,    // internal
+		false,    // noWait
+		nil,      // arguments (no specific rabbitmq features)
+	)
+	if err != nil {
+		connection.Close()
+		return nil, ErrMessageMiddlewareDisconnected
+	}
+
+	return &exchangeMiddleware{
+		commonMiddleware: commonMiddleware{connection: connection, channel: channel},
+		exchange:         exchange,
+		keys:             keys,
+	}, nil
 }
