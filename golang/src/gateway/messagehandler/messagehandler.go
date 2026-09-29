@@ -9,6 +9,7 @@ import (
 
 var globalSessionCounter atomic.Uint64
 const stepSessionCounter = 1
+const gatewaySessionID = "gateway"
 
 type MessageHandler struct {
 	sessionID uint64
@@ -24,12 +25,11 @@ func NewMessageHandler() MessageHandler {
 
 func (messageHandler *MessageHandler) SerializeDataMessage(fruitRecord fruititem.FruitItem) (*middleware.Message, error) {
 	data := []fruititem.FruitItem{fruitRecord}
-	return inner.SerializeMessage(data, messageHandler.sessionID)
+	return inner.SerializeData(data, messageHandler.sessionID)
 }
 
 func (messageHandler *MessageHandler) SerializeEOFMessage() (*middleware.Message, error) {
-	data := []fruititem.FruitItem{}
-	return inner.SerializeMessage(data, messageHandler.sessionID)
+	return inner.SerializeEOF(messageHandler.sessionID, gatewaySessionID)
 }
 
 func (messageHandler *MessageHandler) DeserializeResultMessage(message *middleware.Message) ([]fruititem.FruitItem, error) {

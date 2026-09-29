@@ -50,7 +50,7 @@ func TestSerializeDataMessageReturnSessionID(t *testing.T) {
 		t.Fatalf("Error inesperado: %v", err)
 	}
 
-	expectedJSON := fmt.Sprintf(`[%d,[["Manzana",5]]]`, currentID)
+	expectedJSON := fmt.Sprintf(`["DATA",%d,[["Manzana",5]]]`, currentID)
 
 	if msg.Body != expectedJSON {
 		t.Errorf("Esperaba el JSON %s, pero obtuve %s", expectedJSON, msg.Body)
