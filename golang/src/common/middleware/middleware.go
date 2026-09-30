@@ -12,6 +12,13 @@ type Message struct {
 	Body string
 }
 
+type Event struct {
+	Source  int
+	Message Message
+	Ack     func()
+	Nack    func()
+}
+
 type ConnSettings struct {
 	Hostname string
 	Port     int

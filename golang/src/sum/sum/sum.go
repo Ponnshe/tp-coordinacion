@@ -32,19 +32,10 @@ type SumConfig struct {
 	AggregationPrefix string
 }
 
-type EventType int
-
 const (
-	EventFromGateway EventType = iota
+	EventFromGateway = iota
 	EventFromControl
 )
-
-type InternalEvent struct {
-	Type    EventType
-	Message middleware.Message
-	Ack     func()
-	Nack    func()
-}
 
 type SessionState struct {
 	FruitItemMap map[string]fruititem.FruitItem
@@ -59,7 +50,7 @@ type Sum struct {
 	controlExchange   middleware.Middleware
 	sessions        map[uint64]*SessionState
 	finished        map[uint64]bool
-	eventsChannel   chan InternalEvent
+	eventsChannel   chan middleware.Event
 }
 
 func NewSum(config SumConfig) (*Sum, error) {
@@ -99,7 +90,7 @@ func NewSum(config SumConfig) (*Sum, error) {
 		controlExchange: controlExchange,
 		sessions:        make(map[uint64]*SessionState),
 		finished:        make(map[uint64]bool),
-		eventsChannel:   make(chan InternalEvent, 100),
+		eventsChannel:   make(chan middleware.Event, 100),
 	}, nil
 }
 
@@ -132,7 +123,7 @@ func (sum *Sum) Run() {
 	go func() {
 		defer wg.Done()
 		err := sum.inputQueue.StartConsuming(func(msg middleware.Message, ack, nack func()) {
-			sum.eventsChannel <- InternalEvent{Type: EventFromGateway, Message: msg, Ack: ack, Nack: nack}
+			sum.eventsChannel <- middleware.Event{Source: EventFromGateway, Message: msg, Ack: ack, Nack: nack}
 		})
 		if err != nil {
 			slog.Error("Error consuming from input queue", "err", err)
@@ -142,7 +133,7 @@ func (sum *Sum) Run() {
 	go func() {
 		defer wg.Done()
 		err := sum.controlExchange.StartConsuming(func(msg middleware.Message, ack, nack func()) {
-			sum.eventsChannel <- InternalEvent{Type: EventFromControl, Message: msg, Ack: ack, Nack: nack}
+			sum.eventsChannel <- middleware.Event{Source: EventFromControl, Message: msg, Ack: ack, Nack: nack}
 		})
 		if err != nil {
 			slog.Error("Error consuming from control exchange", "err", err)
@@ -166,7 +157,7 @@ func (sum *Sum) Run() {
 	slog.Info("Sum node shutdown complete.")
 }
 
-func (sum *Sum) handleMessage(event InternalEvent) {
+func (sum *Sum) handleMessage(event middleware.Event) {
 	defer event.Ack()
 
 	msg, err := inner.DeserializeMessage(event.Message.Body)
@@ -192,13 +183,13 @@ func (sum *Sum) handleMessage(event InternalEvent) {
 		}
 
 	case inner.MsgTypeEOF:
-		if event.Type == EventFromControl {
+		if event.Source == EventFromControl {
 			if sum.finished[msg.SessionID] {
 				// It's an echo of our own broadcast. Ignore it and clean up memory.
 				delete(sum.finished, msg.SessionID)
 				return
 			}
-		} else if event.Type == EventFromGateway {
+		} else if event.Source == EventFromGateway {
 			// Mark as finished so we can ignore our own echo later
 			sum.finished[msg.SessionID] = true
 			
