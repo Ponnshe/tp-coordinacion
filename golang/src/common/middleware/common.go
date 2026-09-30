@@ -37,7 +37,7 @@ func (commonMiddleware *commonMiddleware) StartConsuming(callbackFunc func(msg M
 	return nil
 }
 
-func (commonMiddleware *commonMiddleware) Send(msg Message) error{
+func (commonMiddleware *commonMiddleware) Send(msg Message, routingKey string) error{
 	return nil
 }
 

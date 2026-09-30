@@ -86,7 +86,7 @@ func (aggregation *Aggregation) handleEndOfRecordsMessage() error {
 		slog.Debug("While serializing top message", "err", err)
 		return err
 	}
-	if err := aggregation.outputQueue.Send(*message); err != nil {
+	if err := aggregation.outputQueue.Send(*message, ""); err != nil {
 		slog.Debug("While sending top message", "err", err)
 		return err
 	}
@@ -97,7 +97,7 @@ func (aggregation *Aggregation) handleEndOfRecordsMessage() error {
 		slog.Debug("While serializing EOF message", "err", err)
 		return err
 	}
-	if err := aggregation.outputQueue.Send(*message); err != nil {
+	if err := aggregation.outputQueue.Send(*message, ""); err != nil {
 		slog.Debug("While sending EOF message", "err", err)
 		return err
 	}

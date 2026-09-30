@@ -41,11 +41,11 @@ func (messageHandler *MessageHandler) SerializeEOFMessage() (*middleware.Message
 }
 
 func (messageHandler *MessageHandler) DeserializeResultMessage(message *middleware.Message) ([]fruititem.FruitItem, error) {
-	fruitRecords, _, err := inner.DeserializeMessage(message.Body)
+	msg, err := inner.DeserializeMessage(message.Body)
 	if err != nil {
 		return nil, err
 	}
-	return fruitRecords, nil
+	return msg.Data, nil
 }
 
 func (messageHandler *MessageHandler) SessionID()  (uint64) {

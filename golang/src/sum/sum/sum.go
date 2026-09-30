@@ -2,6 +2,7 @@ package sum
 
 import (
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/fruititem"
@@ -9,8 +10,15 @@ import (
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/middleware"
 )
 
+func (sum *Sum) getAggregationRoutingKey(fruit string) string {
+	h := fnv.New32a()
+	h.Write([]byte(fruit))
+	idx := int(h.Sum32()) % sum.aggregationAmount
+	return fmt.Sprintf("%s_%d", sum.aggregationPrefix, idx)
+}
+
 type SumConfig struct {
-	Id                int
+	ID                int
 	MomHost           string
 	MomPort           int
 	InputQueue        string
@@ -20,10 +28,34 @@ type SumConfig struct {
 	AggregationPrefix string
 }
 
+type EventType int
+
+const (
+	EventFromGateway EventType = iota
+	EventFromControl
+)
+
+type InternalEvent struct {
+	Type    EventType
+	Message middleware.Message
+	Ack     func()
+	Nack    func()
+}
+
+type SessionState struct {
+	FruitItemMap map[string]fruititem.FruitItem
+}
+
 type Sum struct {
-	inputQueue     middleware.Middleware
-	outputExchange middleware.Middleware
-	fruitItemMap   map[string]fruititem.FruitItem
+	nodeID            string
+	aggregationPrefix string
+	aggregationAmount int
+	inputQueue        middleware.Middleware
+	outputExchange    middleware.Middleware
+	controlExchange   middleware.Middleware
+	sessions        map[uint64]*SessionState
+	finished        map[uint64]bool
+	eventsChannel   chan InternalEvent
 }
 
 func NewSum(config SumConfig) (*Sum, error) {
@@ -45,76 +77,127 @@ func NewSum(config SumConfig) (*Sum, error) {
 		return nil, err
 	}
 
+	controlExchange, err := middleware.CreateExchangeMiddleware(config.SumPrefix, []string{config.SumPrefix}, connSettings)
+	if err != nil {
+		inputQueue.Close()
+		outputExchange.Close()
+		return nil, err
+	}
+
+	nodeID := fmt.Sprintf("%s_%d", config.SumPrefix, config.ID)
+
 	return &Sum{
-		inputQueue:     inputQueue,
-		outputExchange: outputExchange,
-		fruitItemMap:   map[string]fruititem.FruitItem{},
+		nodeID:            nodeID,
+		aggregationPrefix: config.AggregationPrefix,
+		aggregationAmount: config.AggregationAmount,
+		inputQueue:        inputQueue,
+		outputExchange:    outputExchange,
+		controlExchange: controlExchange,
+		sessions:        make(map[uint64]*SessionState),
+		finished:        make(map[uint64]bool),
+		eventsChannel:   make(chan InternalEvent, 100),
 	}, nil
 }
 
 func (sum *Sum) Run() {
-	sum.inputQueue.StartConsuming(func(msg middleware.Message, ack, nack func()) {
-		sum.handleMessage(msg, ack, nack)
-	})
+	synMessageStr, err := inner.SerializeSYN(sum.nodeID)
+	if err != nil {
+		slog.Error("Failed to serialize SYN message", "err", err)
+	} else {
+		if err := sum.outputExchange.Send(middleware.Message{Body: synMessageStr}, ""); err != nil {
+			slog.Error("Failed to send SYN message to aggregators", "err", err)
+		} else {
+			slog.Info("SYN message sent to aggregators", "nodeID", sum.nodeID)
+		}
+	}
+
+	go func() {
+		err := sum.inputQueue.StartConsuming(func(msg middleware.Message, ack, nack func()) {
+			sum.eventsChannel <- InternalEvent{Type: EventFromGateway, Message: msg, Ack: ack, Nack: nack}
+		})
+		if err != nil {
+			slog.Error("Error consuming from input queue", "err", err)
+		}
+	}()
+
+	go func() {
+		err := sum.controlExchange.StartConsuming(func(msg middleware.Message, ack, nack func()) {
+			sum.eventsChannel <- InternalEvent{Type: EventFromControl, Message: msg, Ack: ack, Nack: nack}
+		})
+		if err != nil {
+			slog.Error("Error consuming from control exchange", "err", err)
+		}
+	}()
+
+	slog.Info("Sum node started processing events", "nodeID", sum.nodeID)
+	for event := range sum.eventsChannel {
+		sum.handleMessage(event)
+	}
 }
 
-func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
-	defer ack()
+func (sum *Sum) handleMessage(event InternalEvent) {
+	defer event.Ack()
 
-	fruitRecords, isEof, err := inner.DeserializeMessage(&msg)
+	msg, err := inner.DeserializeMessage(event.Message.Body)
 	if err != nil {
 		slog.Error("While deserializing message", "err", err)
 		return
 	}
 
-	if isEof {
-		if err := sum.handleEndOfRecordMessage(); err != nil {
-			slog.Error("While handling end of record message", "err", err)
+	switch msg.Type {
+	case inner.MsgTypeData:
+		state, ok := sum.sessions[msg.SessionID]
+		if !ok {
+			state = &SessionState{FruitItemMap: make(map[string]fruititem.FruitItem)}
+			sum.sessions[msg.SessionID] = state
 		}
-		return
-	}
-
-	if err := sum.handleDataMessage(fruitRecords); err != nil {
-		slog.Error("While handling data message", "err", err)
-	}
-}
-
-func (sum *Sum) handleEndOfRecordMessage() error {
-	slog.Info("Received End Of Records message")
-	for key := range sum.fruitItemMap {
-		fruitRecord := []fruititem.FruitItem{sum.fruitItemMap[key]}
-		message, err := inner.SerializeMessage(fruitRecord)
-		if err != nil {
-			slog.Debug("While serializing message", "err", err)
-			return err
+		
+		for _, fruitRecord := range msg.Data {
+			if existing, ok := state.FruitItemMap[fruitRecord.Fruit]; ok {
+				state.FruitItemMap[fruitRecord.Fruit] = existing.Sum(fruitRecord)
+			} else {
+				state.FruitItemMap[fruitRecord.Fruit] = fruitRecord
+			}
 		}
-		if err := sum.outputExchange.Send(*message); err != nil {
-			slog.Debug("While sending message", "err", err)
-			return err
+
+	case inner.MsgTypeEOF:
+		if event.Type == EventFromControl {
+			if sum.finished[msg.SessionID] {
+				// It's an echo of our own broadcast. Ignore it and clean up memory.
+				delete(sum.finished, msg.SessionID)
+				return
+			}
+		} else if event.Type == EventFromGateway {
+			// Mark as finished so we can ignore our own echo later
+			sum.finished[msg.SessionID] = true
+			
+			// Broadcast the EXACT same EOF message to our sibling Sum nodes
+			if err := sum.controlExchange.Send(middleware.Message{Body: event.Message.Body}, ""); err != nil {
+				slog.Error("Failed to broadcast EOF to control exchange", "err", err)
+			}
 		}
-	}
 
-	eofMessage := []fruititem.FruitItem{}
-	message, err := inner.SerializeMessage(eofMessage)
-	if err != nil {
-		slog.Debug("While serializing EOF message", "err", err)
-		return err
-	}
-	if err := sum.outputExchange.Send(*message); err != nil {
-		slog.Debug("While sending EOF message", "err", err)
-		return err
-	}
-	return nil
-}
-
-func (sum *Sum) handleDataMessage(fruitRecords []fruititem.FruitItem) error {
-	for _, fruitRecord := range fruitRecords {
-		_, ok := sum.fruitItemMap[fruitRecord.Fruit]
+		// Send totals to aggregators
+		state, ok := sum.sessions[msg.SessionID]
 		if ok {
-			sum.fruitItemMap[fruitRecord.Fruit] = sum.fruitItemMap[fruitRecord.Fruit].Sum(fruitRecord)
-		} else {
-			sum.fruitItemMap[fruitRecord.Fruit] = fruitRecord
+			for _, fruitRecord := range state.FruitItemMap {
+				dataMsgStr, err := inner.SerializeData([]fruititem.FruitItem{fruitRecord}, msg.SessionID)
+				if err == nil {
+					rk := sum.getAggregationRoutingKey(fruitRecord.Fruit)
+					sum.outputExchange.Send(middleware.Message{Body: dataMsgStr}, rk)
+				}
+			}
+			delete(sum.sessions, msg.SessionID)
 		}
+
+		// Send our own EOF to aggregators
+		eofMsgStr, err := inner.SerializeEOF(msg.SessionID, sum.nodeID)
+		if err == nil {
+			sum.outputExchange.Send(middleware.Message{Body: eofMsgStr}, "")
+		}
+
+	case inner.MsgTypeSYN:
+		// Sums should not receive SYN messages from each other
+		slog.Debug("Received SYN message unexpectedly")
 	}
-	return nil
 }

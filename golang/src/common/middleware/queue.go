@@ -45,7 +45,7 @@ func (queueMiddleware *queueMiddleware) StartConsuming(callbackFunc func(msg Mes
 	return nil
 }
 
-func (queueMiddleware *queueMiddleware) Send(msg Message) error{
+func (queueMiddleware *queueMiddleware) Send(msg Message, routingKey string) error{
 	err := queueMiddleware.channel.Publish(
 		"",           // exchange (vacío significa default exchange)
 		queueMiddleware.queueName, // routing key

@@ -37,7 +37,7 @@ type Middleware interface {
 	//Envía un mensaje a la cola o a los tópicos con el que se inicializó el exchange.
 	//Si se pierde la conexión con el middleware devuelve ErrMessageMiddlewareDisconnected.
 	//Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareMessage.
-	Send(msg Message) error
+	Send(msg Message, routingKey string) error
 
 	//Se desconecta de la cola o exchange al que estaba conectado.
 	//Si ocurre un error interno que no puede resolverse devuelve ErrMessageMiddlewareClose.

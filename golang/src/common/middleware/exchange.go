@@ -67,8 +67,13 @@ func (exchangeMiddleware *exchangeMiddleware) StartConsuming(callbackFunc func(m
 	return nil
 }
 
-func (exchangeMiddleware *exchangeMiddleware) Send(msg Message) error {
-	for _, key := range exchangeMiddleware.keys {
+func (exchangeMiddleware *exchangeMiddleware) Send(msg Message, routingKey string) error {
+	keysToPublish := exchangeMiddleware.keys
+	if routingKey != "" {
+		keysToPublish = []string{routingKey}
+	}
+
+	for _, key := range keysToPublish {
 		err := exchangeMiddleware.channel.Publish(
 			exchangeMiddleware.exchange, // exchange
 			key,         // routing key

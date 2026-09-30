@@ -79,3 +79,19 @@ El nodo `Join` realiza un trabajo computacionalmente más "pesado" (ordenamiento
 
 **Justificación y Mejoras:**
 1. **Arquitectura Limpia (Desacoplamiento):** Se refactorizó la capa del protocolo (`inner`) para eliminar su dependencia de la capa de infraestructura (`middleware`). Ahora opera puramente con tipos de Go (`string`), lo que facilita el testing aislado y previene la mezcla de responsabilidades (Regla del Boy Scout).
+
+## Decisión de Diseño: Concurrencia en Nodos Sum (Patrón Actor con Go Channels)
+
+**Contexto:** El nodo `Sum` en la Iteración 2 debe consumir mensajes de dos fuentes de manera concurrente: la cola compartida (para procesar datos in-band) y un exchange de broadcast exclusivo para nodos Sum (para la señalización fuera de banda del `EOF` entre hermanos).
+
+**Problema:** En Go, los mapas nativos (`map`) no son *thread-safe*. Si dos *goroutines* (una por cada consumidor de RabbitMQ) intentan escribir y leer simultáneamente el estado de las sesiones, se producirían *Race Conditions* y *Panics*. Utilizar un `sync.Mutex` tradicional generaría un cuello de botella grave por contención, ya que el flujo masivo de datos acapararía el *lock* y ralentizaría la recepción de las señales de control.
+
+**Decisión:** Se implementó un **Patrón Actor** (basado en paso de mensajes) mediante el uso de un `Go Channel` unificado (`eventsChannel`).
+
+1. Las funciones *callback* de RabbitMQ no realizan ningún procesamiento. Simplemente encapsulan el mensaje y lo inyectan en el canal interno.
+2. El procesamiento se centraliza en un ciclo de vida síncrono (`for event := range sum.eventsChannel`) operado por una única *goroutine* principal.
+3. Se implementó una lógica de *eco* mediante un mapa `finished`. Dado que el nodo que emite un broadcast a RabbitMQ vuelve a recibirlo, este mapa actúa temporalmente para atrapar el eco, ignorarlo y limpiarse a sí mismo para prevenir fugas de memoria (OOM).
+
+**Beneficios:**
+- **100% libre de *Locks*:** Al existir una sola *goroutine* modificando el mapa, el estado es intrínsecamente *thread-safe* sin penalizaciones por sincronización.
+- **Determinismo:** Garantiza un flujo ordenado y permite probar de manera aislada (TDD) inyectando eventos controlados sin depender del middleware subyacente.

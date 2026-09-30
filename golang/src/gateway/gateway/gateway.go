@@ -189,7 +189,7 @@ func (gateway *Gateway) handleFruitRecordMessage(client clientregistry.ClientSta
 		slog.Debug("While serializing data message", "err", err)
 		return err
 	}
-	if err := gateway.inputQueue.Send(*message); err != nil {
+	if err := gateway.inputQueue.Send(*message, ""); err != nil {
 		slog.Debug("While sending data message", "err", err)
 		return err
 	}
@@ -207,7 +207,7 @@ func (gateway *Gateway) handleEndOfRecordsMessage(client clientregistry.ClientSt
 		slog.Debug("While serializing END_OF_RECORDS  message", "err", err)
 		return err
 	}
-	if err := gateway.inputQueue.Send(*message); err != nil {
+	if err := gateway.inputQueue.Send(*message, ""); err != nil {
 		slog.Debug("While sending eof message", "err", err)
 		return err
 	}
