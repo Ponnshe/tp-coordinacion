@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/fruititem"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/messageprotocol/inner"
@@ -99,6 +103,15 @@ func NewSum(config SumConfig) (*Sum, error) {
 	}, nil
 }
 
+func (sum *Sum) handleSignals() {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	<-signals
+	slog.Info("SIGTERM received, starting graceful shutdown...")
+	sum.inputQueue.StopConsuming()
+	sum.controlExchange.StopConsuming()
+}
+
 func (sum *Sum) Run() {
 	synMessageStr, err := inner.SerializeSYN(sum.nodeID)
 	if err != nil {
@@ -111,7 +124,13 @@ func (sum *Sum) Run() {
 		}
 	}
 
+	go sum.handleSignals()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
 	go func() {
+		defer wg.Done()
 		err := sum.inputQueue.StartConsuming(func(msg middleware.Message, ack, nack func()) {
 			sum.eventsChannel <- InternalEvent{Type: EventFromGateway, Message: msg, Ack: ack, Nack: nack}
 		})
@@ -121,6 +140,7 @@ func (sum *Sum) Run() {
 	}()
 
 	go func() {
+		defer wg.Done()
 		err := sum.controlExchange.StartConsuming(func(msg middleware.Message, ack, nack func()) {
 			sum.eventsChannel <- InternalEvent{Type: EventFromControl, Message: msg, Ack: ack, Nack: nack}
 		})
@@ -129,10 +149,21 @@ func (sum *Sum) Run() {
 		}
 	}()
 
+	go func() {
+		wg.Wait()
+		close(sum.eventsChannel)
+	}()
+
 	slog.Info("Sum node started processing events", "nodeID", sum.nodeID)
 	for event := range sum.eventsChannel {
 		sum.handleMessage(event)
 	}
+
+	slog.Info("Events channel closed, closing middleware connections...")
+	sum.inputQueue.Close()
+	sum.controlExchange.Close()
+	sum.outputExchange.Close()
+	slog.Info("Sum node shutdown complete.")
 }
 
 func (sum *Sum) handleMessage(event InternalEvent) {
