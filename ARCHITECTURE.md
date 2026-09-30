@@ -67,3 +67,15 @@ Se mantiene la propagación in-band del EOF (el EOF viaja por la misma cola que 
 
 **Impacto en otros componentes (Nodo Join):**
 El nodo `Join` realiza un trabajo computacionalmente más "pesado" (ordenamiento de un Top N). Sin embargo, dado que por diseño arquitectónico el `Join` actúa como un sumidero único (Singleton), no participa en un escenario de balanceo de carga concurrente con otras réplicas. Por lo tanto, el uso de batching no afectará negativamente el balanceo del sistema, aunque consumirá más memoria RAM en ese nodo si los `Aggregators` envían datos más rápido de lo que `Join` puede ordenar.
+
+## Decisión de Diseño: Protocolo de Mensajería Interna (Inner Protocol)
+
+**Contexto:** La comunicación interna entre nodos (`Gateway -> Sum`, `Sum -> Aggregator`, `Aggregator -> Join`) requiere enviar distintos tipos de información (datos, señales de fin, registro) a través de RabbitMQ. El diseño original no distinguía explícitamente el tipo de mensaje, lo que generaba ambigüedad (e.g. asumir que una lista vacía era un EOF).
+
+**Decisión:** Se diseñó un protocolo donde el primer elemento del JSON indica explícitamente el Tipo de Mensaje:
+- `["DATA", sessionID, [datos...]]`: Envío de tuplas o resultados calculados.
+- `["EOF", sessionID, nodeID]`: Notificación de fin de procesamiento.
+- `["SYN", nodeID]`: Fase de reconocimiento de existencia de nodos.
+
+**Justificación y Mejoras:**
+1. **Arquitectura Limpia (Desacoplamiento):** Se refactorizó la capa del protocolo (`inner`) para eliminar su dependencia de la capa de infraestructura (`middleware`). Ahora opera puramente con tipos de Go (`string`), lo que facilita el testing aislado y previene la mezcla de responsabilidades (Regla del Boy Scout).

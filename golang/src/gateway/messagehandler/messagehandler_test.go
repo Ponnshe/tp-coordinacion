@@ -47,12 +47,12 @@ func TestSerializeDataMessageReturnSessionID(t *testing.T) {
 	msg, err := handler.SerializeDataMessage(fruit)
 
 	if err != nil{
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected Error: %v", err)
 	}
 
 	expectedJSON := fmt.Sprintf(`["DATA",%d,[["Manzana",5]]]`, currentID)
 
 	if msg.Body != expectedJSON {
-		t.Errorf("Esperaba el JSON %s, pero obtuve %s", expectedJSON, msg.Body)
+		t.Errorf("Expected JSON %s, but got %s", expectedJSON, msg.Body)
 	}
 }

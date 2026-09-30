@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/fruititem"
-	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/middleware"
 )
 
 const (
@@ -26,7 +25,7 @@ func deserializeJSON(message []byte) ([]any, error) {
 	return data, nil
 }
 
-func SerializeData(fruitRecords []fruititem.FruitItem, sessionID uint64) (*middleware.Message, error) {
+func SerializeData(fruitRecords []fruititem.FruitItem, sessionID uint64) (string, error) {
 	data := []any{}
 	for _, fruitRecord := range fruitRecords {
 		datum := []any{
@@ -40,39 +39,36 @@ func SerializeData(fruitRecords []fruititem.FruitItem, sessionID uint64) (*middl
 
 	body, err := serializeJSON(finalPayload)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	message := middleware.Message{Body: string(body)}
 
-	return &message, nil
+	return string(body), nil
 }
 
-func SerializeSYN(nodeID string) (*middleware.Message, error) {
+func SerializeSYN(nodeID string) (string, error) {
 	finalPayload := []any{MsgTypeSYN,nodeID}
 
 	body, err := serializeJSON(finalPayload)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	message := middleware.Message{Body: string(body)}
 
-	return &message, nil
+	return string(body), nil
 }
 
-func SerializeEOF(sessionID uint64, nodeID string) (*middleware.Message, error) {
+func SerializeEOF(sessionID uint64, nodeID string) (string, error) {
 	finalPayload := []any{MsgTypeEOF,sessionID,nodeID}
 
 	body, err := serializeJSON(finalPayload)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	message := middleware.Message{Body: string(body)}
 
-	return &message, nil
+	return string(body), nil
 }
 
-func DeserializeMessage(message *middleware.Message) ([]fruititem.FruitItem, bool, error) {
-	data, err := deserializeJSON([]byte((*message).Body))
+func DeserializeMessage(message string) ([]fruititem.FruitItem, bool, error) {
+	data, err := deserializeJSON([]byte(message))
 	if err != nil {
 		return nil, false, err
 	}
