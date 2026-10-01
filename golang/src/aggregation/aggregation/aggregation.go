@@ -131,52 +131,62 @@ func (aggregation *Aggregation) handleMessage(event middleware.Event) {
 
 	switch msg.Type {
 	case inner.MsgTypeSYN:
-		aggregation.registeredSums[msg.NodeID] = true
-		slog.Info("Registered Sum node", "nodeID", msg.NodeID)
-
+		aggregation.handleSYNMessage(msg)
 	case inner.MsgTypeData:
-		state, ok := aggregation.sessions[msg.SessionID]
-		if !ok {
-			state = &SessionState{
-				FruitItemMap: make(map[string]fruititem.FruitItem),
-				ReceivedEOFs: make(map[string]bool),
-			}
-			aggregation.sessions[msg.SessionID] = state
-		}
-
-		for _, fruitRecord := range msg.Data {
-			if existing, ok := state.FruitItemMap[fruitRecord.Fruit]; ok {
-				state.FruitItemMap[fruitRecord.Fruit] = existing.Sum(fruitRecord)
-			} else {
-				state.FruitItemMap[fruitRecord.Fruit] = fruitRecord
-			}
-		}
-
+		aggregation.handleDataMessage(msg)
 	case inner.MsgTypeEOF:
-		state, ok := aggregation.sessions[msg.SessionID]
-		if !ok {
-			// Si llega el EOF antes o sin datos, inicializamos igual el estado
-			state = &SessionState{
-				FruitItemMap: make(map[string]fruititem.FruitItem),
-				ReceivedEOFs: make(map[string]bool),
-			}
-			aggregation.sessions[msg.SessionID] = state
-		}
-		
-		state.ReceivedEOFs[msg.NodeID] = true
+		aggregation.handleEOFMessage(msg)
+	}
+}
 
-		allReceived := true
-		for nodeID := range aggregation.registeredSums {
-			if !state.ReceivedEOFs[nodeID] {
-				allReceived = false
-				break
-			}
-		}
+func (aggregation *Aggregation) handleSYNMessage(msg *inner.InnerMessage) {
+	aggregation.registeredSums[msg.NodeID] = true
+	slog.Info("Registered Sum node", "nodeID", msg.NodeID)
+}
 
-		if allReceived {
-			aggregation.handleSessionComplete(msg.SessionID, state)
-			delete(aggregation.sessions, msg.SessionID)
+func (aggregation *Aggregation) handleDataMessage(msg *inner.InnerMessage) {
+	state, ok := aggregation.sessions[msg.SessionID]
+	if !ok {
+		state = &SessionState{
+			FruitItemMap: make(map[string]fruititem.FruitItem),
+			ReceivedEOFs: make(map[string]bool),
 		}
+		aggregation.sessions[msg.SessionID] = state
+	}
+
+	for _, fruitRecord := range msg.Data {
+		if existing, ok := state.FruitItemMap[fruitRecord.Fruit]; ok {
+			state.FruitItemMap[fruitRecord.Fruit] = existing.Sum(fruitRecord)
+		} else {
+			state.FruitItemMap[fruitRecord.Fruit] = fruitRecord
+		}
+	}
+}
+
+func (aggregation *Aggregation) handleEOFMessage(msg *inner.InnerMessage) {
+	state, ok := aggregation.sessions[msg.SessionID]
+	if !ok {
+		// Si llega el EOF antes o sin datos, inicializamos igual el estado
+		state = &SessionState{
+			FruitItemMap: make(map[string]fruititem.FruitItem),
+			ReceivedEOFs: make(map[string]bool),
+		}
+		aggregation.sessions[msg.SessionID] = state
+	}
+	
+	state.ReceivedEOFs[msg.NodeID] = true
+
+	allReceived := true
+	for nodeID := range aggregation.registeredSums {
+		if !state.ReceivedEOFs[nodeID] {
+			allReceived = false
+			break
+		}
+	}
+
+	if allReceived {
+		aggregation.handleSessionComplete(msg.SessionID, state)
+		delete(aggregation.sessions, msg.SessionID)
 	}
 }
 

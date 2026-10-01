@@ -114,51 +114,61 @@ func (join *Join) handleMessage(event middleware.Event) {
 
 	switch msg.Type {
 	case inner.MsgTypeSYN:
-		join.registeredAggregators[msg.NodeID] = true
-		slog.Info("Registered Aggregator node", "nodeID", msg.NodeID)
-
+		join.handleSYNMessage(msg)
 	case inner.MsgTypeData:
-		state, ok := join.sessions[msg.SessionID]
-		if !ok {
-			state = &SessionState{
-				FruitItemMap: make(map[string]fruititem.FruitItem),
-				ReceivedEOFs: make(map[string]bool),
-			}
-			join.sessions[msg.SessionID] = state
-		}
-
-		for _, fruitRecord := range msg.Data {
-			if existing, ok := state.FruitItemMap[fruitRecord.Fruit]; ok {
-				state.FruitItemMap[fruitRecord.Fruit] = existing.Sum(fruitRecord)
-			} else {
-				state.FruitItemMap[fruitRecord.Fruit] = fruitRecord
-			}
-		}
-
+		join.handleDataMessage(msg)
 	case inner.MsgTypeEOF:
-		state, ok := join.sessions[msg.SessionID]
-		if !ok {
-			state = &SessionState{
-				FruitItemMap: make(map[string]fruititem.FruitItem),
-				ReceivedEOFs: make(map[string]bool),
-			}
-			join.sessions[msg.SessionID] = state
-		}
+		join.handleEOFMessage(msg)
+	}
+}
 
-		state.ReceivedEOFs[msg.NodeID] = true
+func (join *Join) handleSYNMessage(msg *inner.InnerMessage) {
+	join.registeredAggregators[msg.NodeID] = true
+	slog.Info("Registered Aggregator node", "nodeID", msg.NodeID)
+}
 
-		allReceived := true
-		for nodeID := range join.registeredAggregators {
-			if !state.ReceivedEOFs[nodeID] {
-				allReceived = false
-				break
-			}
+func (join *Join) handleDataMessage(msg *inner.InnerMessage) {
+	state, ok := join.sessions[msg.SessionID]
+	if !ok {
+		state = &SessionState{
+			FruitItemMap: make(map[string]fruititem.FruitItem),
+			ReceivedEOFs: make(map[string]bool),
 		}
+		join.sessions[msg.SessionID] = state
+	}
 
-		if allReceived {
-			join.handleSessionComplete(msg.SessionID, state)
-			delete(join.sessions, msg.SessionID)
+	for _, fruitRecord := range msg.Data {
+		if existing, ok := state.FruitItemMap[fruitRecord.Fruit]; ok {
+			state.FruitItemMap[fruitRecord.Fruit] = existing.Sum(fruitRecord)
+		} else {
+			state.FruitItemMap[fruitRecord.Fruit] = fruitRecord
 		}
+	}
+}
+
+func (join *Join) handleEOFMessage(msg *inner.InnerMessage) {
+	state, ok := join.sessions[msg.SessionID]
+	if !ok {
+		state = &SessionState{
+			FruitItemMap: make(map[string]fruititem.FruitItem),
+			ReceivedEOFs: make(map[string]bool),
+		}
+		join.sessions[msg.SessionID] = state
+	}
+
+	state.ReceivedEOFs[msg.NodeID] = true
+
+	allReceived := true
+	for nodeID := range join.registeredAggregators {
+		if !state.ReceivedEOFs[nodeID] {
+			allReceived = false
+			break
+		}
+	}
+
+	if allReceived {
+		join.handleSessionComplete(msg.SessionID, state)
+		delete(join.sessions, msg.SessionID)
 	}
 }
 
