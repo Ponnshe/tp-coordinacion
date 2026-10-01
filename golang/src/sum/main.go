@@ -6,7 +6,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/7574-sistemas-distribuidos/tp-coordinacion/sum/sum"
+	"github.com/7574-sistemas-distribuidos/tp-coordinacion/sum"
 )
 
 func loadConfig() (sum.SumConfig, error) {
@@ -51,7 +51,7 @@ func loadConfig() (sum.SumConfig, error) {
 	}
 
 	return sum.SumConfig{
-		Id:                id,
+		ID:                id,
 		MomHost:           momHost,
 		MomPort:           momPort,
 		InputQueue:        inputQueue,

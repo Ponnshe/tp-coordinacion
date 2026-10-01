@@ -15,7 +15,7 @@ import (
 )
 
 type AggregationConfig struct {
-	Id                int
+	ID                int
 	MomHost           string
 	MomPort           int
 	OutputQueue       string
@@ -49,14 +49,14 @@ func NewAggregation(config AggregationConfig) (*Aggregation, error) {
 		return nil, err
 	}
 
-	inputExchangeRoutingKey := []string{fmt.Sprintf("%s_%d", config.AggregationPrefix, config.Id)}
+	inputExchangeRoutingKey := []string{fmt.Sprintf("%s_%d", config.AggregationPrefix, config.ID)}
 	inputExchange, err := middleware.CreateExchangeMiddleware(config.AggregationPrefix, inputExchangeRoutingKey, connSettings)
 	if err != nil {
 		outputQueue.Close()
 		return nil, err
 	}
 
-	nodeID := fmt.Sprintf("%s_%d", config.AggregationPrefix, config.Id)
+	nodeID := fmt.Sprintf("%s_%d", config.AggregationPrefix, config.ID)
 
 	return &Aggregation{
 		nodeID:         nodeID,
