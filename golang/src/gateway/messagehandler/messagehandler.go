@@ -45,6 +45,9 @@ func (messageHandler *MessageHandler) DeserializeResultMessage(message *middlewa
 	if err != nil {
 		return nil, err
 	}
+	if msg.SessionID != messageHandler.sessionID {
+		return nil, nil
+	}
 	return msg.Data, nil
 }
 
